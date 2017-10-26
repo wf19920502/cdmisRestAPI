@@ -1,6 +1,7 @@
 var config = require('../config')
 var Alluser = require('../models/alluser')
 var DpRelation = require('../models/dpRelation')
+var DoctorsInCharge = require('../models/doctorsInCharge')
 var OpenIdTmp = require('../models/openId')
 // var DictNumber = require('../models/dictNumber')
 // var Numbering = require('../models/numbering')
@@ -15,6 +16,9 @@ var jwt = require('jsonwebtoken')
 // var Patient = require('../models/patient')
 var commonFunc = require('../middlewares/commonFunc')
 var Errorlog = require('../models/errorlog')
+
+var alluserCtrl = require('../controllers_v2/alluser_controller')
+
 var Base64 = {
     // 转码表
   table: [
@@ -249,7 +253,13 @@ exports.getAlluserAgreement = function (req, res) {
   var _userId = req.query.userId
   var query = {userId: _userId}
   var opts = ''
-  var fields = {'agreement': 1}
+  var fields = {}
+  var _role = req.query.role
+  if (_role === 'patient') {
+    fields = {'agreementPat': 1}
+  } else if (_role === 'doctor') {
+    fields = {'agreementDoc': 1}
+  }
   Alluser.getOne(query, function (err, item) {
     if (err) {
       return res.status(500).send(err.errmsg)
@@ -261,7 +271,14 @@ exports.updateAlluserAgreement = function (req, res) {
   var _userId = req.body.userId
   var _agreement = req.body.agreement
   var query = {userId: _userId}
-  Alluser.updateOne(query, {$set: {agreement: _agreement}}, function (err, item1) {
+  var _role = req.body.role
+  var upObj = {}
+  if (_role === 'patient') {
+    upObj = {$set: {agreementPat: _agreement}}
+  } else if (_role === 'doctor') {
+    upObj = {$set: {agreementDoc: _agreement}}
+  }
+  Alluser.updateOne(query, upObj, function (err, item1) {
     if (err) {
       return res.status(500).send(err.errmsg)
     }
@@ -288,6 +305,7 @@ exports.getAlluserList = function (role) {
   return function (req, res) {
     var query = {'invalidFlag': 0}
     var fields = {'_id': 1}//, 'revisionInfo':0
+    var populate = {'path':''}
 
     var limit = Number(req.query.limit)
     var skip = Number(req.query.skip)
@@ -371,6 +389,12 @@ exports.getAlluserList = function (role) {
       fields['class_info'] = 1
       fields['birthday'] = 1
       fields['allergic'] = 1
+
+      fields['doctorInCharge'] = 1
+      populate['path'] = 'doctorInCharge'
+      populate['select'] = {
+        userId: 1, name: 1, phoneNo: 1
+      }
     }
     if (_role === 3) {
       if (_province !== null && _province !== undefined && _province !== '') {
@@ -410,12 +434,13 @@ exports.getAlluserList = function (role) {
         // 通过子表查询主表，定义主表查询路径及输出内容
         // var populate = {path: 'patients.patientId', select: {'_id':0, 'revisionInfo':0}};
     // console.log(query)
+    // console.log(populate)
     Alluser.getSome(query, function (err, userlist) {
       if (err) {
         return res.status(500).send(err.errmsg)
       }
       res.json({results: userlist})
-    }, opts, fields)
+    }, opts, fields, populate)
   }
 }
 exports.countAlluserList = function (req, res) {
@@ -550,7 +575,7 @@ exports.updateAlluserList = function (req, res) {
     upObj['name'] = _name
   }
   if (_gender !== null && _gender !== undefined && _gender !== '') {
-    if (_gender === 1 || _gender === 2) {
+    if (_gender === 1 || _gender === 2 || _gender === '1' || _gender === '2') {
       upObj['gender'] = Number(_gender)
     } else {
       return res.json({status: 1, results: 'gender must be 1(male) or 2(female)!'})
@@ -675,7 +700,7 @@ exports.registerTest = function (acl) {
                 return res.status(400).send('empty inputs')
               }
                             // res.json({results: 0,userNo:item.userId,mesg:"Alluser Register Success!"});
-            })
+            }, {new: true, runValidators: true})
           }
         })
       } else {
@@ -702,7 +727,16 @@ exports.register = function (acl) {
       password: _password,
       role: _role,
       userId: _userNo,
-      invalidFlag: 0
+      invalidFlag: 0,
+      creationTime: new Date()
+    }
+    if (_role === 'patient') {
+      // 患者注册时需要填写姓名
+      let _name = req.body.name || null
+      if (_name === null) {
+        return res.status(400).send('name_needed')
+      }
+      userData['name'] = _name
     }
     var newAlluser = new Alluser(userData)
     newAlluser.save(function (err, Info) {
@@ -888,9 +922,17 @@ exports.checkBinding = function (req, res) {
       return res.status(500).send(err.errmsg)
     }
     if (item != null) {
-      if (item.MessageOpenId != null && (item.MessageOpenId.patientWechat != null || item.MessageOpenId.test != null)) {
+      // 修改 nurseWechat暂时共用doctorWechat字段 2017-09-21 lgf
+      // if (item.MessageOpenId != null && (item.MessageOpenId.patientWechat != null || item.MessageOpenId.test != null)) {
+      if (item.MessageOpenId != null) {
         // openId 存在
-        var query = {patientOpenId: item.MessageOpenId.patientWechat || item.MessageOpenId.test}
+        var query = {}
+        if (role === 'patient' && (item.MessageOpenId.patientWechat != null || item.MessageOpenId.test != null)) {
+          query = {patientOpenId: item.MessageOpenId.patientWechat || item.MessageOpenId.test}
+        }
+        if (role === 'nurse' && (item.MessageOpenId.doctorWechat != null || item.MessageOpenId.test != null)) {
+          query = {patientOpenId: item.MessageOpenId.doctorWechat || item.MessageOpenId.test}
+        }
         // console.log(query);
         OpenIdTmp.getOne(query, function (err, item1) {
           if (err) {
@@ -913,7 +955,7 @@ exports.checkBinding = function (req, res) {
             let _url = ''
             if (role === 'patient') {
               // binding doctor
-              _url = 'http://' + webEntry.domain + '/api/v2/patient/favoriteDoctor' + '?token=' + req.query.token || req.body.token
+              _url = 'http://' + webEntry.domain + '/api/v2/patient/favoriteDoctor' + '?token=' + req.token
               jsondata = {
                 patientId: item.userId,
                 doctorId: item1.doctorUserId,
@@ -921,7 +963,7 @@ exports.checkBinding = function (req, res) {
               }
             } else if (role === 'nurse') {
               // binding patient
-              _url = 'http://' + webEntry.domain + '/api/v2/nurse/bindingPatient' + '?token=' + req.query.token || req.body.token
+              _url = 'http://' + webEntry.domain + '/api/v2/nurse/bindingPatient' + '?token=' + req.token
               jsondata = {
                 patientId: item1.doctorUserId,
                 nurseObjectId: item._id,
@@ -946,7 +988,103 @@ exports.checkBinding = function (req, res) {
                 if (err) {
                   return res.status(500).send(err.errmsg)
                 }
+                // 微信模板消息 2017-10-12 lgf
+                if (role === 'doctor') {
+                  let queryD = {userId: item1.doctorUserId, role: 'doctor'}
+                  Alluser.getOne(queryD, function (err, doctor) {
+                    if (err) {
+                      return res.status(500).send(err.errmsg)
+                    } else if (doctor === null) {
+                      return res.status(422).send('不存在的医生ID!')
+                    } else {
+                      let name = doctor.name
+                      let title = doctor.title
+                      let workUnit = doctor.workUnit
 
+                      let templatePat = {
+                        'userId': item.userId,
+                        'role': 'patient',
+                        'postdata': {
+                          // 'touser': patient_openId,
+                          'template_id': config.wxTemplateIdConfig.bindDocMsgToPat, // '43kP7uwMZmr52j7Ptk8GLwBl5iImvmqmBbFNND_tDEg',
+                          'url': '',
+                          'data': {
+                            'first': {
+                              'value': '您现在已经关注' + name + '医生。', // 医生姓名
+                              'color': '#173177'
+                            },
+                            'keyword1': {
+                              'value': name,    // 医生姓名
+                              'color': '#173177'
+                            },
+                            'keyword2': {
+                              'value': title,   // 医生职称
+                              'color': '#173177'
+                            },
+                            'keyword3': {
+                              'value': workUnit, // 所在医院
+                              'color': '#173177'
+                            },
+
+                            'remark': {
+                              'value': '点击底栏【肾事管家】按钮进行注册，注册登录后可查看医生详情，并进行咨询问诊。',
+                              'color': '#173177'
+                            }
+                          }
+                        }
+                      }
+                      request({
+                        url: 'http://' + webEntry.domain + '/api/v2/wechat/messageTemplate',
+                        method: 'POST',
+                        body: templatePat,
+                        json: true
+                      }, function (err, response) {
+                        if (err) {
+                          return res.status(500).send(err.errmsg)
+                        } else {
+                          let templateDoc = {
+                            'userId': doctor.userId,
+                            'role': 'doctor',
+                            'postdata': {
+                              'template_id': config.wxTemplateIdConfig.bindDocMsgToDoc, // 'F5UpddU9v4m4zWX8_NA9t3PU_9Yraj2kUxU07CVIT-M',
+                              'url': '', // 'https://open.weixin.qq.com/connect/oauth2/authorize?appid=wxfa2216ac422fb747&redirect_uri=http://proxy.haihonghospitalmanagement.com/go&response_type=code&scope=snsapi_userinfo&state=newsufferer&#wechat_redirect',
+                              'data': {
+                                'first': {
+                                  'value': '您好，有一位新患者关注了您。',
+                                  'color': '#173177'
+                                },
+                                'keyword1': {
+                                  'value': item.name,                            // 患者姓名
+                                  'color': '#173177'
+                                },
+                                'keyword2': {
+                                  'value': commonFunc.getNowFormatSecondMinus(), // 添加的时间
+                                  'color': '#173177'
+                                },
+                                'remark': {
+                                  'value': '点击查看',
+                                  'color': '#173177'
+                                }
+                              }
+                            }
+                          }
+                          request({
+                            url: 'http://' + webEntry.domain + '/api/v2/wechat/messageTemplate',
+                            method: 'POST',
+                            body: templateDoc,
+                            json: true
+                          }, function (err, response) {
+                            if (err) {
+                              return res.status(500).send(err.errmsg)
+                            } else {
+                              return res.json({results: req.results})
+                            }
+                          })
+                        }
+                      })
+                    }
+                  })
+                }
                 // 2017-06-07GY调试
                 // console.log('checkBinding_out');
 
@@ -1018,19 +1156,28 @@ exports.login = function (req, res, next) {
 
       res.json({results: 1, mesg: "Alluser doesn't Exist!"})
     } else {
-      if (role === 'doctor' && Number(item.reviewStatus) !== 1) {
-        role = 'guest'
+      if (role === 'doctor') { // 医生登录，判断角色无医生且审核未通过则赋值guest角色
+        if (item.role.indexOf('doctor') === -1 && Number(item.reviewStatus) !== 1) {
+          role = 'guest'
+        }
       }
-      if (password !== item.password && openIdFlag === 0) {
-        // 2017-06-07GY调试
-        // console.log('login_err_password_not_correct');
-
-        res.json({results: 1, mesg: "Alluser password isn't correct!"})
-      } else if (item.role.indexOf(role) === -1) {
+      if (role === 'PC') {         // PC端登录 修改默认输入角色为'PC'，并赋值 userPayload 中 role 为该用户的所有角色 2017-09-15 lgf
+        var roles = item.role
+        var _role = 'PC'
+        if (roles.length !== 0) {  // 其实用户至少有一个角色，默认以第一个角色登录
+          role = roles[0]
+        }
+      }
+      if (item.role.indexOf(role) === -1) {
         // 2017-06-07GY调试
         // console.log('login_err_no_authority');
 
         res.json({results: 1, mesg: 'No authority!'})
+      } else if (password !== item.password && openIdFlag === 0) {
+        // 2017-06-07GY调试
+        // console.log('login_err_password_not_correct');
+
+        res.json({results: 1, mesg: "Alluser password isn't correct!"})
       } else {
         var _lastlogindate = item.lastLogin
                 // console.log(Date())
@@ -1041,24 +1188,44 @@ exports.login = function (req, res, next) {
 
                     // csq 返回token信息
                     // console.log(user);
-          var userPayload = {
-            _id: user._id,
-            userId: user.userId,
-            name: user.name,
-            role: role,
-            exp: Date.now() + config.TOKEN_EXPIRATION * 1000
+          var userPayload = {}
+          if (_role === 'PC') {
+            userPayload = {
+              _id: user._id,
+              userId: user.userId,
+              name: user.name,
+              role: user.role,
+              exp: Date.now() + config.TOKEN_EXPIRATION * 1000
+            }
+          } else {
+            userPayload = {
+              _id: user._id,
+              userId: user.userId,
+              name: user.name,
+              role: role,
+              exp: Date.now() + config.TOKEN_EXPIRATION * 1000
+            }
           }
+          // console.log('userPayload', userPayload)
+          // var userPayload = {
+          //   _id: user._id,
+          //   userId: user.userId,
+          //   name: user.name,
+          //   role: role,
+          //   exp: Date.now() + config.TOKEN_EXPIRATION * 1000
+          // }
                     //  console.log(Date.now());
                     // console.log( Date.now() + 60 * 3 * 1000);
           var token = jwt.sign(userPayload, config.tokenSecret, {algorithm: 'HS256'}, {expiresIn: config.TOKEN_EXPIRATION})
-
+          req.token = token
           var sha1 = crypto.createHash('sha1')
           var refreshToken = sha1.update(token).digest('hex')
 
                     // JSON.stringify(userPayload),
           var refreshtokenData = {
             refreshtoken: refreshToken,
-            userPayload: JSON.stringify(userPayload)
+            userPayload: JSON.stringify(userPayload),
+            userId: user.userId
           }
                     // console.log(refreshtokenData);
 
@@ -1076,7 +1243,8 @@ exports.login = function (req, res, next) {
               mesg: 'login success!',
               token: token,
               refreshToken: refreshToken,
-              reviewStatus: item.reviewStatus
+              reviewStatus: item.reviewStatus,
+              role: item.role
             }
 
                         // 2017-06-07GY调试
@@ -1539,7 +1707,8 @@ exports.setMessageOpenId = function (req, res) {
 
 exports.getMessageOpenId = function (req, res) {
   var _type = req.query.type || null
-  var userId = req.query.userId
+  // var userId = req.query.userId
+  var userId = req.session.userId
   if (_type === null) {
     return res.json({result: 1, msg: 'plz input type'})
   } else {
@@ -1725,7 +1894,7 @@ exports.dprelation = function (type) {
               if (dpitem.patientsInCharge) {
                 if (dpitem.patientsInCharge.length) {
                   for (let i = 0; i < dpitem.patientsInCharge.length; i++) {
-                    if (JSON.stringify(dpitem.patientsInCharge[i].patientId) == JSON.stringify(item._id)) {
+                    if (JSON.stringify(dpitem.patientsInCharge[i].patientId) === JSON.stringify(item._id)) {
                       patientChargeFlag = 1
                       break
                     }
@@ -1812,26 +1981,86 @@ exports.getDoctorObject = function (req, res, next) {
   })
 }
 
-exports.successMessage = function (req, res, next) {
+// 用于下单，检测患者付款对象是否是其主管医生 GY 2017-10-11
+exports.checkIncharge = function(req, res, next) {
+  let query = {
+    patientId: req.userObject._id, 
+    doctorId: req.doctorObject._id, 
+    invalidFlag: 1
+  }
+  DoctorsInCharge.getSome(query, function(err, items) {
+    if (err) {
+      console.log(err)
+      next()
+    } else if (items.length === 0) {
+      req.isIncharge = false
+      next()
+    } else {
+      let now = new Date()
+      let count = 0
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].start < now && items[i].end > now) {
+          req.isIncharge = true
+          break
+        }
+        count++
+      }
+      if (count === items.length) {
+        req.isIncharge = false
+      }
+      next()
+    }
+    // console.log(req.isIncharge)
+    // next()
+  })
+}
+
+exports.serviceMessage = function (req, res, next) {
   let token = '86cf8733b80a31fd7deb7b3147a226d0'
   let accountSid = '43b82098fcec135770091f446f6b7367'
   let appId = 'af8afab59dd04001a4b5b37bcc419ec3'
-  let templateId = '112436'
-
+  let templateId
   let now = new Date()
-  let mobile = req.body.patientObject.phoneNo || null
-  let doctorName = req.body.doctorObject.name || null
-  let bookingDay = req.body.day || null
-  let bookingTime = req.body.time || null
-  let PDPlace = req.body.place || null
-  let confirmCode = req.body.code || null
+  let mobile
+  let param
   let PDTime
-  if (bookingTime === 'Morning') {
-    PDTime = bookingDay.slice(0, 4) + '-' + bookingDay.slice(5, 7) + '-' + bookingDay.slice(8, 10) + '上午'
-  } else {
-    PDTime = bookingDay.slice(0, 4) + '-' + bookingDay.slice(5, 7) + '-' + bookingDay.slice(8, 10) + '下午'
+  if (Number(req.body.cancelFlag) === 1 || Number(req.body.successFlag) === 1) {
+    let bookingDay = new Date(new Date(req.body.day).toLocaleDateString())
+    let bookingTime = req.body.time || null
+    if (bookingTime === 'Morning') {
+      PDTime = bookingDay.getFullYear() + '年' + Number(bookingDay.getMonth() + 1) + '月' + bookingDay.getDate() + '日上午'
+    } else if (bookingTime === 'Afternoon') {
+      PDTime = bookingDay.getFullYear() + '年' + Number(bookingDay.getMonth() + 1) + '月' + bookingDay.getDate() + '日下午'
+    } else {
+      return res.json({code: 1, msg: 'Wrong Input!'})
+    }
   }
-  let param = doctorName + ',' + PDTime + ',' + PDPlace + ',' + confirmCode
+
+  if (Number(req.body.cancelFlag) === 1) {
+    templateId = '142743'
+    mobile = req.body.phoneNo || null
+    let doctorName = req.body.doctorName || null
+    let orderMoney = Number(req.body.orderMoney) / 100
+    let orderNo = req.body.orderNo
+    param = doctorName + ',' + PDTime + ',' + orderMoney + ',' + orderNo
+  } else if (Number(req.body.successFlag) === 1) {
+    templateId = '112436'
+    mobile = req.body.patientObject.phoneNo || null
+    let doctorName = req.body.doctorObject.name || null
+    let PDPlace = req.body.place || null
+    let confirmCode = req.body.code || null
+    param = doctorName + ',' + PDTime + ',' + PDPlace + ',' + confirmCode
+  } else if (Number(req.body.rejectFlag) === 1) {
+    templateId = '149559'
+    mobile = req.body.phoneNo || null
+    let doctorName = req.body.doctorName || null
+    let reason = req.body.reason || null
+    let orderMoney = Number(req.body.orderMoney) / 100
+    let orderNo = req.body.orderNo
+    param = doctorName + ',' + reason + ',' + orderMoney + ',' + orderNo
+  } else {
+    return res.json({code: 1, meg: '请填写successFlag／cancelFlag／rejectFlag!'})
+  }
 
   let JSONData = '{' + '"' + 'templateSMS' + '"' + ':' + '{' + '"' + 'appId' + '"' + ':' + '"' + appId + '"' + ',' + '"' + 'param' + '"' + ':' + '"' + param + '"' + ',' + '"' + 'templateId' + '"' + ':' + '"' + templateId + '"' + ',' + '"' + 'to' + '"' + ':' + '"' + mobile + '"' + '}' + '}'
   let timestamp = now.getFullYear() + commonFunc.paddNum(now.getMonth() + 1) + commonFunc.paddNum(now.getDate()) + now.getHours() + now.getMinutes() + now.getSeconds()
@@ -1860,9 +2089,19 @@ exports.successMessage = function (req, res, next) {
       code = json.resp.respCode
       if (code === '000000') {
         // res.json({results: 0, mesg: 'Booking Success and Message Sent!'})
-        console.log({results: 0, mesg: 'Booking Success and Message Sent!'})
+        if (Number(req.body.cancelFlag) === 1) {
+          return res.json({results: 0, mesg: 'Cancel Success and Message Sent!'})
+        } else if (Number(req.body.rejectFlag) === 1) {
+          return res.json({results: 0, mesg: 'Reject Success and Message Sent!'})
+        } else if (Number(req.body.successFlag) === 1) {
+          console.log(new Date() + ' --- 面诊预约短信发送 --- ' + mobile + ' Booking Success and Message Sent!')
+        }
       } else {
-        return res.json({results: 1, mesg: {'ErrorCode': code}})
+        if (Number(req.body.successFlag) === 1) {
+          console.log(new Date() + ' --- 面诊预约短信发送 --- ' + mobile + ' Booking Success and Message Error! ErrorCode: \n' + code)
+        } else {
+          return res.json({results: 1, mesg: {'ErrorCode': code}})
+        }
       }
     })
   })
@@ -1872,5 +2111,271 @@ exports.successMessage = function (req, res, next) {
   })
   requests.write(JSONData)
   requests.end()
-  next()
+  if (Number(req.body.successFlag) === 1) {
+    next()
+  }
+}
+
+// async改写------ POST services/message ------ 2017-09-25 YQC
+exports.servicesMessageAsync = function (params, callback) {
+  let type = params.type || null
+  if (['success', 'cancel', 'reject', 'cancelRequest', 'cancelRefund', 'cancelReject', 'request', 'consent'].indexOf(type) === -1) {
+    let err = 'Wrong Input of type'
+    return callback(err)
+  }
+  let token = '86cf8733b80a31fd7deb7b3147a226d0'
+  let accountSid = '43b82098fcec135770091f446f6b7367'
+  let appId = 'af8afab59dd04001a4b5b37bcc419ec3'
+  let templateId = null
+  let now = new Date()
+  let mobile = params.phoneNo || null
+  if (mobile === null) {
+    let err = 'Please Check the Input of mobile'
+    return callback(err)
+  }
+  let param = null
+  let PDTime = null
+  if (type === 'cancel' || type === 'success' || type === 'cancelRequest' || type === 'cancelRefund' || type === 'cancelReject') {
+    if (((params.bookingDay || null) !== null) && ((params.bookingTime || null) !== null)) {
+      let bookingDay = new Date(new Date(params.bookingDay).toLocaleDateString())
+      if (params.bookingTime === 'Morning') {
+        PDTime = Number(bookingDay.getMonth() + 1) + '月' + bookingDay.getDate() + '日上午'
+      } else if (params.bookingTime === 'Afternoon') {
+        PDTime = Number(bookingDay.getMonth() + 1) + '月' + bookingDay.getDate() + '日下午'
+      } else {
+        let err = 'Please Check the Input of bookingTime'
+        return callback(err)
+      }
+    } else {
+      let err = 'Please Check the Input of bookingDay/bookingTime'
+      return callback(err)
+    }
+  }
+
+  if (type === 'cancel') {
+    templateId = '142743'
+    let doctorName = params.doctorName || ''
+    let orderMoney = params.orderMoney || 0
+    let orderNo = params.orderNo || null
+    if (doctorName === null || PDTime === null || orderMoney === null || orderNo === null) {
+      let err = 'Please Check the Input of doctorName/PDTime/orderMoney/orderNo'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + PDTime + ',' + Number(orderMoney) / 100 + ',' + orderNo
+    }
+  }
+  if (type === 'success') {
+    templateId = '112436'
+    let doctorName = params.doctorName || ''
+    let PDPlace = params.place || '未知'
+    let confirmCode = params.code || null
+    if (doctorName === null || PDTime === null || PDPlace === null || confirmCode === null) {
+      let err = 'Please Check the Input of doctorName/PDTime/place/code'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + PDTime + ',' + PDPlace + ',' + confirmCode
+    }
+  }
+  if (type === 'request') {
+    templateId = '162129'
+    let doctorName = params.doctorName || ''
+    let duration = params.duration || null
+    if (doctorName === null || duration === null) {
+      let err = 'Please Check the Input of doctorName/duration'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + duration
+    }
+  }
+  if (type === 'consent') {
+    templateId = '162136'
+    let doctorName = params.doctorName || ''
+    let start = params.start || null
+    let end = params.end || null
+    let orderNo = params.orderNo || null
+    if (doctorName === null || start === null || end === null || orderNo === null) {
+      let err = 'Please Check the Input of doctorName/start/end/orderNo'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + start + ',' + end + ',' + orderNo
+    }
+  }
+  if (type === 'reject') {
+    templateId = '149559'
+    let doctorName = params.doctorName || ''
+    let reason = params.reason || '未知'
+    let orderMoney = params.orderMoney || 0
+    let orderNo = params.orderNo || null
+    if (doctorName === null || reason === null || orderMoney === null || orderNo === null) {
+      let err = 'Please Check the Input of doctorName/reason/orderMoney/orderNo'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + reason + ',' + Number(orderMoney) / 100 + ',' + orderNo
+    }
+  }
+  if (type === 'cancelRequest') {
+    templateId = '160864'
+    let doctorName = params.doctorName || ''
+    if (doctorName === null || PDTime === null) {
+      let err = 'Please Check the Input of doctorName/PDTime'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + PDTime
+    }
+  }
+  if (type === 'cancelRefund') {
+    templateId = '160866'
+    let doctorName = params.doctorName || ''
+    let orderMoney = params.orderMoney || 0
+    let orderNo = params.orderNo || null
+    if (doctorName === null || PDTime === null || orderMoney === null || orderNo === null) {
+      let err = 'Please Check the Input of doctorName/PDTime/orderMoney/orderNo'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + PDTime + ',' + Number(orderMoney) / 100 + ',' + orderNo
+    }
+  }
+  if (type === 'cancelReject') {
+    templateId = '162145'
+    let doctorName = params.doctorName || ''
+    let orderNo = params.orderNo || null
+    if (doctorName === null || PDTime === null || orderNo === null) {
+      let err = 'Please Check the Input of doctorName/PDTime/orderNo'
+      return callback(err)
+    } else {
+      param = doctorName + ',' + PDTime + ',' + orderNo
+    }
+  }
+
+  let JSONData = '{"templateSMS":{"appId":"' + appId + '","param":"' + param + '","templateId":"' + templateId + '","to":"' + mobile + '"}}'
+  let timestamp = now.getFullYear() + commonFunc.paddNum(now.getMonth() + 1) + commonFunc.paddNum(now.getDate()) + now.getHours() + now.getMinutes() + now.getSeconds()
+  let md5 = crypto.createHash('md5').update(accountSid + token + timestamp).digest('hex').toUpperCase()
+  let authorization = Base64.encode(accountSid + ':' + timestamp)
+  let options = {
+    hostname: 'api.ucpaas.com',
+    path: '/2014-06-30/Accounts/' + accountSid + '/Messages/templateSMS?sig=' + md5,
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json;charset=utf-8',
+      'Authorization': authorization
+    }
+  }
+  let code = 1
+  let requests = https.request(options, function (response) {
+    let resdata = ''
+    response.on('data', function (chunk) {
+      resdata += chunk
+    })
+    response.on('end', function () {
+      let json = evil(resdata)
+      code = json.resp.respCode
+      if (code === '000000') {
+        console.log(new Date() + '--- 短信发送 --- ' + mobile + ' Succeeds.')
+        if (type === 'success') {
+          return callback(null, 'Booking Message Sent!')
+        }
+        if (type === 'cancel') {
+          return callback(null, 'Cancel Message Sent!')
+        }
+        if (type === 'request') {
+          return callback(null, 'Request Message Sent!')
+        }
+        if (type === 'reject') {
+          return callback(null, 'Reject Message Sent!')
+        }
+        if (type === 'consent') {
+          return callback(null, 'Consent Message Sent!')
+        }
+        if (type === 'cancelRequest') {
+          return callback(null, 'Cancel Request Message Sent!')
+        }
+        if (type === 'cancelReject') {
+          return callback(null, 'Cancel Reject Message Sent!')
+        }
+        if (type === 'cancelRefund') {
+          return callback(null, 'Cancel Refund Message Sent!')
+        }
+      } else {
+        console.log(new Date() + '--- 短信发送 --- ' + mobile + ' Error Code: ' + code + ' .')
+        let err = 'Error Code: ' + code
+        return callback(err)
+      }
+    })
+  })
+
+  requests.on('error', function (err) {
+    return callback(err)
+  })
+  requests.write(JSONData)
+  requests.end()
+}
+
+// async改写 调用servicesMessageAsync方式与结果处理 ------ 2017-09-25 YQC
+exports.servicesMessageAsyncTest = function (req, res) {
+  let params = {
+    // --- cancel ---
+    // type: 'cancel',
+    // phoneNo: '15868870012',
+    // bookingDay: '2017-9-13',
+    // bookingTime: 'Morning',
+    // doctorName: '叶',
+    // orderNo: 'O2017091300001', // 退款订单号
+    // orderMoney: '10' // 退款金额订单
+    // --- success ---
+    // type: 'success',
+    // phoneNo: '15868870012',
+    // bookingDay: '2017-9-13',
+    // bookingTime: 'Morning',
+    // doctorName: '叶',
+    // place: '浙一医院',
+    // code: '123456'
+    // --- request ---
+    // type: 'request',
+    // phoneNo: '15868870012',
+    // doctorName: '叶',
+    // duration: '2' // 服务时长
+    // --- consent ---
+    // type: 'consent',
+    // phoneNo: '15868870012',
+    // doctorName: '叶',
+    // start: '2017-09-27',
+    // end: '2017-11-27',
+    // orderNo: 'O2017091300001' // 退款订单号
+    // --- reject ---
+    // type: 'reject',
+    // phoneNo: '15868870012',
+    // doctorName: '叶',
+    // orderNo: 'O2017091300001', // 退款订单号
+    // orderMoney: '10', // 退款金额订单
+    // reason: '嘿嘿嘿'
+    // --- cancelRequest ---
+    // type: 'cancelRequest',
+    // phoneNo: '15868870012',
+    // bookingDay: '2017-9-13',
+    // bookingTime: 'Morning',
+    // doctorName: '叶'
+    // --- cancelRefund ---
+    // type: 'cancelRefund',
+    // phoneNo: '15868870012',
+    // bookingDay: '2017-9-13',
+    // bookingTime: 'Morning',
+    // doctorName: '叶',
+    // orderNo: 'O2017091300001', // 退款订单号
+    // orderMoney: '10' // 退款金额订单
+    // --- cancelReject ---
+    // type: 'cancelReject',
+    // phoneNo: '15868870012',
+    // bookingDay: '2017-9-13',
+    // bookingTime: 'Morning',
+    // doctorName: '叶',
+    // orderNo: 'O2017091300001' // 订单号
+  }
+  alluserCtrl.servicesMessageAsync(params, function (err, results) {
+    if (err) {
+      return res.json({msg: err, data: results, code: 1})
+    } else {
+      return res.json({msg: '发送成功', data: results, code: 0})
+    }
+  })
 }

@@ -22,7 +22,7 @@ exports.getLoginParam = function (req, res) {
     appsecret = config.niaodaifuDevConfig.Android.appSecret
   } else if (client === 'iOS') {
     appkey = config.niaodaifuDevConfig.iOS.appid
-    appsecret = config.niaodaifuDevConfig.Android.appSecret
+    appsecret = config.niaodaifuDevConfig.iOS.appSecret
   } else {
     return res.status(403).send('client输入不正确')
   }
@@ -56,7 +56,7 @@ function getSign (appkey, appsecret, atime) {
 
 exports.receiveData = function (req, res) {
   console.log('receiveNiaodaifu')
-  console.log(req.body)
+  // console.log(req.body)
 
   var userbind = req.body.userbind
   var desc = req.body.desc

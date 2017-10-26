@@ -1,11 +1,11 @@
 
 var mongoose = require('mongoose')
 
-var forumSchema = new mongoose.Schema({
+var forumpSchema = new mongoose.Schema({
   postId: String,
   // type: Number,
   // board: Number,
-  status: {type: Number, enum: [0, 1]},
+  status: Number,
   sponsorId: {
     type: String,
     ref: 'alluser'
@@ -47,72 +47,72 @@ var forumSchema = new mongoose.Schema({
   anonymous: {type: Number, enum: [1, 0]} // 1为匿名
 })
 
-var forumModel = mongoose.model('forum', forumSchema)
+var forumpModel = mongoose.model('forump', forumpSchema)
 
-function Forum (forum) {
-  this.forum = forum
+function Forump (forump) {
+  this.forump = forump
 }
 
-Forum.prototype.save = function (callback) {
-  var forum = this.forum
-  var newForum = new forumModel(forum)
-  newForum.save(function (err, forumItem) {
+Forump.prototype.save = function (callback) {
+  var forump = this.forump
+  var newForump = new forumpModel(forump)
+  newForump.save(function (err, forumpItem) {
     if (err) {
       return callback(err)
     }
-    callback(null, forumItem)
+    callback(null, forumpItem)
   })
 }
 
-Forum.getOne = function (query, callback, opts, fields, populate) {
+Forump.getOne = function (query, callback, opts, fields, populate) {
   var options = opts || {}
   var _fields = fields || null
   var _populate = populate || ''
 
-  forumModel
+  forumpModel
   .findOne(query, _fields, options)
   .populate(_populate)
-  .exec(function (err, forumInfo) {
+  .exec(function (err, forumpInfo) {
     if (err) {
       return callback(err)
     }
-    callback(null, forumInfo)
+    callback(null, forumpInfo)
   })
 }
 
-Forum.getSome = function (query, callback, opts, fields, populate) {
+Forump.getSome = function (query, callback, opts, fields, populate) {
   var options = opts || {}
   var _fields = fields || null
   var _populate = populate || ''
-  forumModel
+  forumpModel
   .find(query, _fields, options)
   .populate(_populate)
-  .exec(function (err, forums) {
+  .exec(function (err, forumps) {
     if (err) {
       return callback(err)
     }
-    callback(null, forums)
+    callback(null, forumps)
   })
 }
 
-Forum.updateOne = function (query, obj, callback, opts, populate) {
+Forump.updateOne = function (query, obj, callback, opts, populate) {
   var options = opts || {}
   var _populate = populate || ''
 
-  forumModel
+  forumpModel
   .findOneAndUpdate(query, obj, options)
   .populate(_populate)
-  .exec(function (err, upforum) {
+  .exec(function (err, upforump) {
     if (err) {
       return callback(err)
     }
-    callback(null, upforum)
+    callback(null, upforump)
   })
 }
 
-Forum.aggregate = function (array, callback) {
+Forump.aggregate = function (array, callback) {
   let _array = array || []
-  forumModel
+  forumpModel
     .aggregate(_array)
     .exec(function (err, results) {
       if (err) {
@@ -123,10 +123,10 @@ Forum.aggregate = function (array, callback) {
     })
 }
 
-Forum.removeOne = function (query, callback, opts) {
+Forump.removeOne = function (query, callback, opts) {
   var options = opts || {}
 
-  forumModel
+  forumpModel
     .findOneAndRemove(query, options, function (err, results) {
       if (err) {
         return callback(err)
@@ -135,4 +135,4 @@ Forum.removeOne = function (query, callback, opts) {
     })
 }
 
-module.exports = Forum
+module.exports = Forump

@@ -17,7 +17,7 @@ var orderSchema = new mongoose.Schema({
     notes: String
   },
   // paystatus: 0：生成商户订单成功；1：生成预付单成功；2：支付成功；3：支付失败；4：取消订单；5：订单超时；6：退款处理中；7：退款关闭；8：退款异常；9：退款成功
-  paystatus: {type: Number, enum: [1, 2, 3, 4, 5, 6, 7, 8, 9]},
+  paystatus: {type: Number, enum: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
   paytime: Date,
   refundNo: String, // 退款单号
   refundAppTime: Date, // 退款申请时间
@@ -25,7 +25,7 @@ var orderSchema = new mongoose.Schema({
   // patientName: String,
 
   // time: Date,
-  type: {type: Number, enum: [1, 2, 3, 4, 5, 6]}, // 1 咨询,2 问诊,3 加急咨询,4 主管医生,5 面诊,6 咨询升级问诊
+  type: {type: Number, enum: [1, 2, 3, 4, 5, 6, 7]}, // 1 咨询,2 问诊,3 加急咨询,4 主管医生,5 面诊,6 咨询升级问诊,7 加急咨询
   freeFlag: {type: Number, enum: [0, 1]}, // 0收费，1免费
   docInChaObject: {type: mongoose.Schema.Types.ObjectId, ref: 'doctorsInCharge'},
   conselObject: {type: mongoose.Schema.Types.ObjectId, ref: 'counsel'},
@@ -117,13 +117,13 @@ Order.removeOne = function (query, callback, opts) {
 
 Order.aggregate = function (array, callback) {
   let _array = array || []
-  orderModel  
+  orderModel
     .aggregate(_array)
     .exec(function (err, results) {
       if (err) {
         return callback(err)
       }
-      console.log(results)
+      // console.log(results)
       callback(null, results)
     })
 }

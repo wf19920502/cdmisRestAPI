@@ -1,10 +1,10 @@
-var Forum = require('../models/forum')
+var Forump = require('../models/forump')
 var Alluser = require('../models/alluser')
-var Forumuserinfo = require('../models/forumuserinfo')
+var Forumpuserinfo = require('../models/forumpuserinfo')
 var webEntry = require('../settings').webEntry
 var Reply = require('../models/reply')
 
-exports.forumPosting = function (req, res) {
+exports.forumpPosting = function (req, res) {
   let userId = req.session.userId || ''
   let time = req.body.time || ''
   time = new Date(time)
@@ -25,7 +25,7 @@ exports.forumPosting = function (req, res) {
       }
       let name = alluserInfo.name
       let obj = {postId: postId, sponsorId: userId, sponsorName: name, title: title, content: content, time: time, anonymous: anonymous, replyCount: 0, favoritesNum: 0, status: 0}
-      Forum.updateOne(query, obj, function (err, upforum) {
+      Forump.updateOne(query, obj, function (err, upforump) {
         if (err) {
           res.status(500).json({code: 1, msg: err.errmsg})
         }
@@ -38,7 +38,7 @@ exports.forumPosting = function (req, res) {
             }
           }
         }
-        Forumuserinfo.updateOne(query2, obj2, function (err, upforum) {
+        Forumpuserinfo.updateOne(query2, obj2, function (err, upforump) {
           if (err) {
             res.status(500).json({code: 1, msg: err.errmsg})
           }
@@ -80,7 +80,7 @@ exports.getAllposts = function (req, res) {
     },
     {
       $lookup: {
-        from: 'forumuserinfos',
+        from: 'forumpuserinfos',
         localField: 'postId',
         foreignField: 'favorites.postId',
         as: 'favorites'
@@ -161,10 +161,10 @@ exports.getAllposts = function (req, res) {
     }
     Url = Url.substr(0, Url.length - 1)
   }
-  let nexturl = webEntry.domain + '/api/v2/forum/allposts' + Url
-  // let nexturl = 'localhost:4060/api/v2/forum/allposts' + Url
+  let nexturl = webEntry.domain + '/api/v2/forump/allposts' + Url
+  // let nexturl = 'localhost:4060/api/v2/forump/allposts' + Url
 
-  Forum.aggregate(array, function (err, results) {
+  Forump.aggregate(array, function (err, results) {
     if (err) {
       res.status(500).json({code: 1, msg: err.errmsg})
     }
@@ -187,7 +187,7 @@ exports.getMycollection = function (req, res) {
     },
     {
       $lookup: {
-        from: 'forums',
+        from: 'forumps',
         localField: 'favorites',
         foreignField: 'postId',
         as: 'collections'
@@ -260,9 +260,9 @@ exports.getMycollection = function (req, res) {
     }
     Url = Url.substr(0, Url.length - 1)
   }
-  let nexturl = webEntry.domain + '/api/v2/forum/mycollection' + Url
+  let nexturl = webEntry.domain + '/api/v2/forump/mycollection' + Url
 
-  Forumuserinfo.aggregate(array, function (err, results) {
+  Forumpuserinfo.aggregate(array, function (err, results) {
     if (err) {
       res.status(500).json({code: 1, msg: err.errmsg})
     }
@@ -285,7 +285,7 @@ exports.getMyposts = function (req, res) {
     },
     {
       $lookup: {
-        from: 'forums',
+        from: 'forumps',
         localField: 'posts',
         foreignField: 'postId',
         as: 'collections'
@@ -374,8 +374,8 @@ exports.getMyposts = function (req, res) {
     }
     Url = Url.substr(0, Url.length - 1)
   }
-  let nexturl = webEntry.domain + '/api/v2/forum/myposts' + Url
-  Forumuserinfo.aggregate(array, function (err, results) {
+  let nexturl = webEntry.domain + '/api/v2/forump/myposts' + Url
+  Forumpuserinfo.aggregate(array, function (err, results) {
     if (err) {
       res.status(500).json({code: 1, msg: err.errmsg})
     }
@@ -415,7 +415,7 @@ exports.getPostContent = function (req, res) {
     {$unwind: {path: '$avatar', preserveNullAndEmptyArrays: true}},
     {
       $lookup: {
-        from: 'forumuserinfos',
+        from: 'forumpuserinfos',
         localField: 'postId',
         foreignField: 'favorites.postId',
         as: 'favorites'
@@ -457,7 +457,7 @@ exports.getPostContent = function (req, res) {
       }
     }
   ]
-  Forum.aggregate(array, function (err, results) {
+  Forump.aggregate(array, function (err, results) {
     if (err) {
       res.status(500).json({code: 1, msg: err.errmsg})
     }
@@ -522,7 +522,7 @@ exports.getPostContent = function (req, res) {
   })
 }
 
-exports.forumComment = function (req, res) {
+exports.forumpComment = function (req, res) {
   let userId = req.session.userId || ''
   let time = req.body.time || ''
   time = new Date(time)
@@ -564,7 +564,7 @@ exports.forumComment = function (req, res) {
         obj2 = {
           $inc: {replyCount: 1}
         }
-        Forum.updateOne(query, obj2, function (err, upforum) {
+        Forump.updateOne(query, obj2, function (err, upforump) {
           if (err) {
             res.status(500).json({code: 1, msg: err.errmsg})
           }
@@ -575,7 +575,7 @@ exports.forumComment = function (req, res) {
   }
 }
 
-exports.forumReply = function (req, res) {
+exports.forumpReply = function (req, res) {
   let userId = req.session.userId || ''
   let time = req.body.time || ''
   time = new Date(time)
@@ -646,17 +646,17 @@ exports.forumReply = function (req, res) {
   }
 }
 
-exports.forumFavorite = function (req, res) {
+exports.forumpFavorite = function (req, res) {
   let userId = req.session.userId || ''
   let postId = req.body.postId
-  Forum.getOne({postId: postId}, function (err, forumInfo) {
+  Forump.getOne({postId: postId}, function (err, forumpInfo) {
     if (err) {
       res.status(500).json({code: 1, msg: err.errmsg})
     }
-    if (forumInfo === null) {
+    if (forumpInfo === null) {
       res.status(500).json({code: 1, msg: 'postId不存在'})
     } else {
-      let time = forumInfo.time
+      let time = forumpInfo.time
       let query = {userId: userId}
       let obj = {
         $push: {
@@ -666,7 +666,7 @@ exports.forumFavorite = function (req, res) {
           }
         }
       }
-      Forumuserinfo.updateOne(query, obj, function (err, upforum) {
+      Forumpuserinfo.updateOne(query, obj, function (err, upforump) {
         if (err) {
           res.status(500).json({code: 1, msg: err.errmsg})
         }
@@ -675,7 +675,7 @@ exports.forumFavorite = function (req, res) {
         let obj2 = {
           $inc: {favoritesNum: 1}
         }
-        Forum.updateOne(query2, obj2, function (err, upforum) {
+        Forump.updateOne(query2, obj2, function (err, upforump) {
           if (err) {
             res.status(500).json({code: 1, msg: err.errmsg})
           }
@@ -696,7 +696,7 @@ exports.deletePost = function (req, res) {
     let obj = {
       $set: {status: 1}
     }
-    Forum.updateOne(query, obj, function (err, results) {
+    Forump.updateOne(query, obj, function (err, results) {
       if (err) {
         res.status(500).json({code: 1, msg: err.errmsg})
       }
@@ -708,7 +708,7 @@ exports.deletePost = function (req, res) {
           }
         }
       }
-      Forumuserinfo.updateOne(query2, obj2, function (err, upforum) {
+      Forumpuserinfo.updateOne(query2, obj2, function (err, upforump) {
         if (err) {
           res.status(500).json({code: 1, msg: err.errmsg})
         }
@@ -761,7 +761,7 @@ exports.deleteComment = function (req, res) {
           obj2 = {
             $inc: {replyCount: -1}
           }
-          Forum.updateOne(query, obj2, function (err, upforum) {
+          Forump.updateOne(query, obj2, function (err, upforump) {
             if (err) {
               res.status(500).json({code: 1, msg: err.errmsg})
             }
@@ -777,11 +777,11 @@ exports.deleteFavorite = function (req, res) {
   let userId = req.session.userId || ''
   let postId = req.body.postId
   let query = {userId: userId, 'favorites.postId': postId}
-  Forumuserinfo.getOne(query, function (err, forumuserinfoInfo) {
+  Forumpuserinfo.getOne(query, function (err, forumpuserinfoInfo) {
     if (err) {
       res.status(500).json({code: 1, msg: err.errmsg})
     }
-    if (forumuserinfoInfo === null) {
+    if (forumpuserinfoInfo === null) {
       res.status(500).json({code: 1, msg: '输入的postId并未被收藏'})
     } else {
       let query2 = {userId: userId}
@@ -792,7 +792,7 @@ exports.deleteFavorite = function (req, res) {
           }
         }
       }
-      Forumuserinfo.updateOne(query2, obj, function (err, upforum) {
+      Forumpuserinfo.updateOne(query2, obj, function (err, upforump) {
         if (err) {
           res.status(500).json({code: 1, msg: err.errmsg})
         }
@@ -800,7 +800,7 @@ exports.deleteFavorite = function (req, res) {
         let obj2 = {
           $inc: {favoritesNum: -1}
         }
-        Forum.updateOne(query3, obj2, function (err, upforum) {
+        Forump.updateOne(query3, obj2, function (err, upforump) {
           if (err) {
             res.status(500).json({code: 1, msg: err.errmsg})
           }

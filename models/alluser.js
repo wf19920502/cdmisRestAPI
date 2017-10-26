@@ -10,9 +10,11 @@ var alluserSchema = new mongoose.Schema({
   openId: {type: String, unique: true, sparse: true}, // UnionId
   phoneNo: String,
   password: String,
-  agreement: String,
+  // agreement: String,  // 患者和医生签署协议状态分别储存, 0是已签，1是未签
+  agreementPat: String,  // 患者
+  agreementDoc: String,  // 医生
   photoUrl: String,
-  role: [String],
+  role: [{type: String, enum: ['Leader', 'master', 'doctor', 'patient', 'nurse', 'insuranceA', 'insuranceR', 'insuranceC', 'health', 'admin', 'guest']}],
   loginStatus: {type: Number, enum: [0, 1]},
   lastLogin: Date,
   // TDCticket: String,  // 患者和医生的二维码分别存储
@@ -61,7 +63,7 @@ var alluserSchema = new mongoose.Schema({
   serviceSchedules: [
     {
       _id: 0,
-      day: {type: String, enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sta', 'Sun']},
+      day: {type: String, enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']},
       time: {type: String, enum: ['Morning', 'Afternoon']},
       total: Number, // 医生可以设置的某时段面诊总数
       place: String
@@ -105,7 +107,7 @@ var alluserSchema = new mongoose.Schema({
   schedules: [
     {
       _id: 0,
-      day: {type: String, enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sta', 'Sun']},
+      day: {type: String, enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']},
       time: {type: String, enum: ['Morning', 'Afternoon']},
       place: String
     }
@@ -144,8 +146,8 @@ var alluserSchema = new mongoose.Schema({
   VIPStartTime: Date,
   VIPEndTime: Date,
   // 入组相关
-  group: {type: Number, default: 0, enum: [0, 1]}, 
-  groupTime: Date, 
+  group: {type: Number, default: 0, enum: [0, 1]},
+  groupTime: Date,
   hypertension: Number,
   allergic: String,
   // 关注医生字段
@@ -157,6 +159,8 @@ var alluserSchema = new mongoose.Schema({
       invalidFlag: {type: Number, default: 0, enum: [0, 1]}
     }
   ],
+  // PC端需求：存储当前主管医生_id
+  doctorInCharge: {type: mongoose.Schema.Types.ObjectId, ref: 'alluser'},
   // 主管医生字段 改用doctorsInCharge表
   // doctorsInCharge: [
   //   {
@@ -309,7 +313,7 @@ Alluser.aggregate = function (array, callback) {
       if (err) {
         return callback(err)
       }
-      console.log(results)
+      // console.log(results)
       callback(null, results)
     })
 }

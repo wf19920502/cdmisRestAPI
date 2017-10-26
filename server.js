@@ -143,10 +143,14 @@ schedule.scheduleJob('30 0 8 * * *', taskCtrl.remindChangeTask)
 
 var personalDiagCtrl = require('./controllers_v2/personalDiag_controller')
 // 每天23:00更新医生的可预约面诊availablePDs 2017-08-03 YQC
-schedule.scheduleJob('0 00 23 * * *', personalDiagCtrl.autoAvailablePD)
+schedule.scheduleJob('0 0 23 * * *', personalDiagCtrl.autoAvailablePD)
 
 // 每日23:30自动更新过期面诊PD YQC
 schedule.scheduleJob('0 30 23 * * *', personalDiagCtrl.autoOverduePD)
+
+var doctorsInChargeCtrl = require('./controllers_v2/doctorsInCharge_controller')
+// 每日23:30自动更新过期主管服务 2017-09-13 YQC
+schedule.scheduleJob('0 30 23 * * *', doctorsInChargeCtrl.autoRelease)
 
 // 每天08:00自动推送科室咨询超时未回复 2017-08-05 JYF
 var counseltimeoutCtrl = require('./controllers_v2/counseltimeout_controller')
@@ -155,3 +159,10 @@ schedule.scheduleJob('0 0 8 * * *', counseltimeoutCtrl.autoCounselNews)
 // 每天23:00自动统计当日科室医生工作量 2017-08-11 JYF
 var departmentMonitorCtrl = require('./controllers_v2/departmentMonitor_controller')
 schedule.scheduleJob('0 0 23 * * *', departmentMonitorCtrl.autoDepartmentDaily)
+
+// 每天8:00自动推送给患者和医生咨询或问诊超时自动结束的微信模板消息 2017-09-07 lgf
+var counselCtrl = require('./controllers_v2/counsel_controller')
+schedule.scheduleJob('30 0 8 * * *', counselCtrl.counselAutoEndMsg)
+
+// 每个小时的57分，将超时结束并且未回复的咨询退款 2017-09-14 GY
+schedule.scheduleJob('0 57 * * * *', wechatCtrl.autoRefundCounsel)

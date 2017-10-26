@@ -1,6 +1,6 @@
 // 注释 2017-07-14 YQC
 
-// var config = require('../config')
+var config = require('../config')
 var webEntry = require('../settings').webEntry
 var Communication = require('../models/communication')
 var Counsel = require('../models/counsel')
@@ -14,6 +14,7 @@ var Message = require('../models/message')
 // var commonFunc = require('../middlewares/commonFunc')
 var request = require('request')
 var Alluser = require('../models/alluser')
+var commonFunc = require('../middlewares/commonFunc')
 
 // 根据counselId获取counsel表除messages外的信息 2017-03-31 GY
 // 注释 输入，counselId；输出，问诊信息
@@ -611,10 +612,20 @@ exports.postCommunication = function (req, res) {
     messageType: req.body.messageType,
     sendBy: req.body.sendBy,
     receiver: req.body.receiver,
+    // sendByRole: req.body.content.clientType, // 区分微信端和app端，doctor,patient,wechatdoctor,wechatpatient
+    receiverRole: req.body.content.targetRole,  // 不区分微信端和app端，doctor,patient
     sendDateTime: req.body.content.createTimeInMillis,
     content: req.body.content,
     newsType: req.body.content.newsType
   }
+
+  let sendByRole = req.body.content.clientType
+  if (sendByRole === 'wechatdoctor') {
+    sendByRole = 'doctor'
+  } else if (sendByRole === 'wechatpatient') {
+    sendByRole = 'patient'
+  }
+  commmunicationData['sendByRole'] = sendByRole
 
   var newCommunication = new Communication(commmunicationData)
   newCommunication.save(function (err, communicationInfo) {
@@ -633,7 +644,8 @@ exports.postCommunication = function (req, res) {
     if (msg.targetType === 'single') { // 点对点交流记录
           // console.log("111");
       request({
-        url: 'http://' + webEntry.domain + '/api/v2/new/news' + '?token=' + req.query.token || req.body.token,
+        // url: 'http://' + webEntry.domain + '/api/v2/new/news' + '?token=' + req.query.token || req.body.token,
+        url: 'http://' + webEntry.domain + '/api/v2/new/newstemp',
         method: 'POST',
         body: bodyGen(msg, communicationInfo['messageNo']),
         json: true
@@ -643,7 +655,8 @@ exports.postCommunication = function (req, res) {
       })
     } else { // team群发记录
       request({
-        url: 'http://' + webEntry.domain + '/api/v2/new/teamNews' + '?token=' + req.query.token || req.body.token,
+        // url: 'http://' + webEntry.domain + '/api/v2/new/teamNews' + '?token=' + req.query.token || req.body.token,
+        url: 'http://' + webEntry.domain + '/api/v2/new/teamNewstemp',
         method: 'POST',
         body: bodyGen(msg, communicationInfo['_id']),
         json: true
@@ -659,6 +672,105 @@ exports.postCommunication = function (req, res) {
 
       // res.json({result:'新建成功', newResults: communicationInfo});
   })
+  // 微信模板消息
+  if (req.body.newsType === '11') {
+    if (commmunicationData.receiverRole === 'doctor') {
+      let counselId = ''
+      if (req.body.content.contentType === 'custom') {
+        counselId = commmunicationData.content.content.counselId
+      }
+      var templateDoc = {
+        'userId': req.body.content.targetID,
+        'role': 'doctor',
+        'postdata': {
+          'template_id': config.wxTemplateIdConfig.newCounselToDocOrTeam,
+          'url': '',                                  // 跳转路径需要添加
+          'data': {
+            'first': {
+              'value': '您的患者有新的提问，请及时处理',
+              'color': '#173177'
+            },
+            'keyword1': {
+              'value': counselId,                     // 咨询ID,custom以外的聊天记录貌似获取不到。。
+              'color': '#173177'
+            },
+            'keyword2': {
+              'value': req.body.content.fromName,     // 患者信息（姓名，性别，年龄）
+              'color': '#173177'
+            },
+            'keyword3': {
+              'value': req.body.content.content.text, // 问题描述
+              'color': '#173177'
+            },
+            'keyword4': {
+              'value': commonFunc.getNowFormatSecondMinus(new Date(req.body.content.sendDateTime)), // 提交时间
+              'color': '#173177'
+            },
+
+            'remark': {
+              'value': '感谢您的使用！',
+              'color': '#173177'
+            }
+          }
+        }
+      }
+      request({
+        url: 'http://' + webEntry.domain + '/api/v2/wechat/messageTemplate',
+        method: 'POST',
+        body: templateDoc,
+        json: true
+      }, function (err, response) {
+        if (err) {
+          console.log(new Date(), 'auto_send_messageTemplate_fail_' + commmunicationData.messageNo)
+        }
+      })
+    } else if (commmunicationData.receiverRole === 'patient') {
+      if (req.body.content.contentType === 'text') {
+        let help = ''
+        var templatePat = {
+          'userId': req.body.content.targetID,
+          'role': 'patient',
+          'postdata': {
+            'template_id': config.wxTemplateIdConfig.docReply,
+            'url': '',
+            'data': {
+              'first': {
+                'value': '您的咨询已被回复，请点击此处查看详情。',
+                'color': '#173177'
+              },
+              'keyword1': {
+                'value': help,                          // 咨询内容,貌似获取不到。。
+                'color': '#173177'
+              },
+              'keyword2': {
+                'value': req.body.content.content.text, // 回复内容
+                'color': '#173177'
+              },
+              'keyword3': {
+                'value': req.body.content.fromName,     // 医生姓名
+                'color': '#173177'
+              },
+
+              'remark': {
+                'value': '感谢您的使用！',
+                'color': '#173177'
+              }
+            }
+          }
+        }
+        request({
+          url: 'http://' + webEntry.domain + '/api/v2/wechat/messageTemplate',
+          method: 'POST',
+          body: templatePat,
+          json: true
+        }, function (err, response) {
+          if (err) {
+            console.log(new Date(), 'auto_send_messageTemplate_fail_' + commmunicationData.messageNo)
+          }
+        })
+      }
+    }
+  }
 }
 
 // exports.postCommunication = function(req, res) {
@@ -686,7 +798,7 @@ exports.getCommunication = function (req, res) {
   var messageType = Number(req.query.messageType)
   var id1 = req.query.id1
   var id2 = req.query.id2
-  var newsType = req.query.newsType
+  var newsType = req.query.newsType || null
 
   var limit = Number(req.query.limit)
   var skip = Number(req.query.skip)
@@ -731,7 +843,7 @@ exports.getCommunication = function (req, res) {
   }
   var nexturl = webEntry.domain + '/api/v2/communication/getCommunication' + _Url
 
-  if (messageType === 2) {
+  if (messageType === 2) {           // 群聊
     var query = {receiver: id2}
 
     Communication.getSome(query, function (err, items) {
@@ -744,25 +856,51 @@ exports.getCommunication = function (req, res) {
         return res.json({results: items, nexturl: nexturl})
       }
     }, opts)
-  } else if (messageType === 1) {
-    query = {
-      $or: [
-  {sendBy: id1, receiver: id2},
-  {sendBy: id2, receiver: id1}
-      ]
-    }
-    if (newsType !== undefined) {
-  // query = {
-  //   $or: [
-  //   {sendBy: id1, receiver: id2},
-  //   {sendBy: id2, receiver: id1}
-  //   ],
-  //   $or: [
-  //   {'newsType': newsType},
-  //   {'content.newsType': newsType}
-  //   ]
-  // };
-      query['newsType'] = newsType
+  } else if (messageType === 1) {    // 单聊，获取聊天记录时增加收发方的角色
+    // query = {
+    //   $or: [
+    //     {sendBy: id1, receiver: id2},
+    //     {sendBy: id2, receiver: id1}
+    //   ]
+    // }
+    if (newsType !== null) {
+      // query = {
+      //   $or: [
+      //   {sendBy: id1, receiver: id2},
+      //   {sendBy: id2, receiver: id1}
+      //   ],
+      //   $or: [
+      //   {'newsType': newsType},
+      //   {'content.newsType': newsType}
+      //   ]
+      // };
+      // query['newsType'] = Number(newsType)
+      query = {newsType: Number(newsType)}
+      if (Number(newsType) === 11) {          // 医-患
+        query = {
+          $or: [
+            {
+              sendBy: id1,
+              sendByRole: req.query.sendByRole,
+              receiver: id2,
+              receiverRole: req.query.receiverRole
+            },
+            {
+              sendBy: id2,
+              sendByRole: req.query.receiverRole,
+              receiver: id1,
+              receiverRole: req.query.sendByRole
+            }
+          ]
+        }
+      } else if (Number(newsType) === 12) {   // 医-医
+        query = {
+          $or: [
+            {sendBy: id1, receiver: id2, sendByRole: 'doctor', receiverRole: 'doctor'},
+            {sendBy: id2, receiver: id1, sendByRole: 'doctor', receiverRole: 'doctor'}
+          ]
+        }
+      }
     }
     // console.log(query)
 
@@ -796,6 +934,7 @@ function bodyGen (msg, MESSAGE_ID) {
   var msgType = msg.contentType
   var isSingle = msg.targetType === 'single'
   var receiver = msg.targetID
+  var teamId = msg.teamId || null
   var sender = isID(msg.fromID) || isID(msg.fromName)
   // var content = {}
   var desc = ''
@@ -803,6 +942,7 @@ function bodyGen (msg, MESSAGE_ID) {
   var body = {
     userId: receiver,
     sendBy: sender,
+    teamId: teamId,
     type: msg.newsType,
     title: '',
     description: '',
@@ -810,6 +950,9 @@ function bodyGen (msg, MESSAGE_ID) {
     url: '',
     userRole: msg.targetRole,
     messageId: MESSAGE_ID // 从post communication/postCommunication response取
+  }
+  if (body.type === 15) {
+    body['caseType'] = Number(body.teamId) || 0
   }
   if (msgType === 'custom') {
     if (msg.content.contentStringMap) {
@@ -960,30 +1103,34 @@ exports.getMassTargets = function (req, res, next) {
       return res.status(404).json({results: '暂无关注或主管的患者'})
     } else {
       let targets = []
+      let targetsUserId = []
       switch (target) {
         case 'FOLLOW':
           for (let i = 0; i < doctorItem.patients.length; i++) {
             if (doctorItem.patients[i].patientId !== null) {
-              targets[i] = doctorItem.patients[i].patientId
+              targets.push(doctorItem.patients[i].patientId)
             }
           }
           break
         case 'INCHARGE':
           for (let i = 0; i < doctorItem.patientsInCharge.length; i++) {
-            if (doctorItem.patientsInCharge[i].patientId !== null) {
-              targets[i] = doctorItem.patientsInCharge[i].patientId
+            if (doctorItem.patientsInCharge[i].patientId !== null && doctorItem.patientsInCharge[i].invalidFlag === 1) {
+              targets.push(doctorItem.patientsInCharge[i].patientId)
             }
           }
           break
         case 'ALL':
           for (let i = 0; i < doctorItem.patients.length; i++) {
-            if (doctorItem.patients[i].patientId !== null) {
-              targets[i] = doctorItem.patients[i].patientId
+            if (doctorItem.patients[i].patientId) {
+              targets.push(doctorItem.patients[i].patientId)
+              targetsUserId.push(doctorItem.patients[i].patientId.userId)
             }
           }
           for (let j = 0; j < doctorItem.patientsInCharge.length; j++) {
-            if (doctorItem.patientsInCharge[j].patientId !== null) {
-              targets[doctorItem.patients.length + j] = doctorItem.patientsInCharge[j].patientId
+            if (doctorItem.patientsInCharge[j].patientId && doctorItem.patientsInCharge[j].invalidFlag === 1) {
+              if (targetsUserId.indexOf(doctorItem.patientsInCharge[j].patientId.userId) === -1) {
+                targets.push(doctorItem.patientsInCharge[j].patientId)
+              }
             }
           }
           break
@@ -994,6 +1141,7 @@ exports.getMassTargets = function (req, res, next) {
         return res.status(404).json({results: '无有效群发目标'})
       } else {
         req.massTarget = targets
+        // console.log(targets)
         next()
       }
     }
@@ -1070,8 +1218,8 @@ exports.massCommunication = function (req, res, next) {
           type: 8
         },
         update: {
-          time: now, 
-          title: title, 
+          time: now,
+          title: title,
           description: description,
           readOrNot: 0,
           messageId: communicationDatas[i].messageId
